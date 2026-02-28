@@ -767,7 +767,7 @@ function ChatPage(_props: ChatPageProps) {
     setIsRefreshingMessages(true)
 
     // 找出当前已渲染消息中的最大时间戳（使用 getState 获取最新状态，避免闭包过时导致重复）
-    const currentMessages = useChatStore.getState().messages
+    const currentMessages = useChatStore.getState().messages || []
     const lastMsg = currentMessages[currentMessages.length - 1]
     const minTime = lastMsg?.createTime || 0
 
@@ -781,7 +781,7 @@ function ChatPage(_props: ChatPageProps) {
 
       if (result.success && result.messages && result.messages.length > 0) {
         // 过滤去重：必须对比实时的状态，防止在 handleRefreshMessages 运行期间导致的冲突
-        const latestMessages = useChatStore.getState().messages
+        const latestMessages = useChatStore.getState().messages || []
         const existingKeys = new Set(latestMessages.map(getMessageKey))
         const newOnes = result.messages.filter(m => !existingKeys.has(getMessageKey(m)))
 
@@ -822,7 +822,7 @@ function ChatPage(_props: ChatPageProps) {
         return
       }
       // 使用实时状态进行去重对比
-      const latestMessages = useChatStore.getState().messages
+      const latestMessages = useChatStore.getState().messages || []
       const existing = new Set(latestMessages.map(getMessageKey))
       const lastMsg = latestMessages[latestMessages.length - 1]
       const lastTime = lastMsg?.createTime ?? 0
@@ -1740,7 +1740,7 @@ function ChatPage(_props: ChatPageProps) {
 
       // Range selection with Shift key
       if (isShiftKey && lastSelectedIdRef.current !== null && lastSelectedIdRef.current !== localId) {
-        const currentMsgs = useChatStore.getState().messages
+        const currentMsgs = useChatStore.getState().messages || []
         const idx1 = currentMsgs.findIndex(m => m.localId === lastSelectedIdRef.current)
         const idx2 = currentMsgs.findIndex(m => m.localId === localId)
 
@@ -1810,7 +1810,7 @@ function ChatPage(_props: ChatPageProps) {
       const dbPathHint = (msg as any)._db_path
       const result = await (window as any).electronAPI.chat.deleteMessage(currentSessionId, msg.localId, msg.createTime, dbPathHint)
       if (result.success) {
-        const currentMessages = useChatStore.getState().messages
+        const currentMessages = useChatStore.getState().messages || []
         const newMessages = currentMessages.filter(m => m.localId !== msg.localId)
         useChatStore.getState().setMessages(newMessages)
       } else {
@@ -1871,7 +1871,7 @@ function ChatPage(_props: ChatPageProps) {
       try {
         const result = await (window as any).electronAPI.chat.updateMessage(currentSessionId, editingMessage.message.localId, editingMessage.message.createTime, finalContent)
         if (result.success) {
-          const currentMessages = useChatStore.getState().messages
+          const currentMessages = useChatStore.getState().messages || []
           const newMessages = currentMessages.map(m => {
             if (m.localId === editingMessage.message.localId) {
               return { ...m, parsedContent: finalContent, content: finalContent, rawContent: finalContent }
@@ -1913,7 +1913,7 @@ function ChatPage(_props: ChatPageProps) {
     cancelDeleteRef.current = false
 
     try {
-      const currentMessages = useChatStore.getState().messages
+      const currentMessages = useChatStore.getState().messages || []
       const selectedIds = Array.from(selectedMessages)
       const deletedIds = new Set<number>()
 
@@ -1937,7 +1937,7 @@ function ChatPage(_props: ChatPageProps) {
         setDeleteProgress({ current: i + 1, total: selectedIds.length })
       }
 
-      const finalMessages = useChatStore.getState().messages.filter(m => !deletedIds.has(m.localId))
+      const finalMessages = (useChatStore.getState().messages || []).filter(m => !deletedIds.has(m.localId))
       useChatStore.getState().setMessages(finalMessages)
 
       setIsSelectionMode(false)
@@ -2126,7 +2126,7 @@ function ChatPage(_props: ChatPageProps) {
                 <div className="empty-sessions">
                   <MessageSquare />
                   <p>暂无会话</p>
-                  <p className="hint">请先在数据管理页面解密数据库</p>
+                  <p className="hint">检查你的数据库配置</p>
                 </div>
               )}
             </div>
@@ -2329,7 +2329,7 @@ function ChatPage(_props: ChatPageProps) {
                   </div>
                 )}
 
-                {messages.map((msg, index) => {
+                {(messages || []).map((msg, index) => {
                   const prevMsg = index > 0 ? messages[index - 1] : undefined
                   const showDateDivider = shouldShowDateDivider(msg, prevMsg)
 
