@@ -1537,10 +1537,11 @@ function ExportPage() {
   const contactsAvatarCacheRef = useRef<Record<string, configService.ContactsAvatarCacheEntry>>({})
   const contactsVirtuosoRef = useRef<VirtuosoHandle | null>(null)
   const sessionTableSectionRef = useRef<HTMLDivElement | null>(null)
+  const contactsTopScrollbarRef = useRef<HTMLDivElement | null>(null)
   const contactsHorizontalViewportRef = useRef<HTMLDivElement | null>(null)
   const contactsHorizontalContentRef = useRef<HTMLDivElement | null>(null)
   const contactsBottomScrollbarRef = useRef<HTMLDivElement | null>(null)
-  const contactsScrollSyncSourceRef = useRef<'viewport' | 'bottom' | null>(null)
+  const contactsScrollSyncSourceRef = useRef<'viewport' | 'top' | 'bottom' | null>(null)
   const sessionFormatDropdownRef = useRef<HTMLDivElement | null>(null)
   const detailRequestSeqRef = useRef(0)
   const sessionsRef = useRef<SessionRow[]>([])
@@ -5665,12 +5666,17 @@ function ExportPage() {
       row.mutualFriends.statusLabel.startsWith('加载中')
     ))
   ), [sessionLoadDetailRows])
-  const syncContactsHorizontalScroll = useCallback((source: 'viewport' | 'bottom', scrollLeft: number) => {
+  const syncContactsHorizontalScroll = useCallback((source: 'viewport' | 'top' | 'bottom', scrollLeft: number) => {
     if (contactsScrollSyncSourceRef.current && contactsScrollSyncSourceRef.current !== source) return
 
     contactsScrollSyncSourceRef.current = source
+    const topScrollbar = contactsTopScrollbarRef.current
     const viewport = contactsHorizontalViewportRef.current
     const bottomScrollbar = contactsBottomScrollbarRef.current
+
+    if (source !== 'top' && topScrollbar && Math.abs(topScrollbar.scrollLeft - scrollLeft) > 1) {
+      topScrollbar.scrollLeft = scrollLeft
+    }
 
     if (source !== 'viewport' && viewport && Math.abs(viewport.scrollLeft - scrollLeft) > 1) {
       viewport.scrollLeft = scrollLeft
@@ -5688,6 +5694,9 @@ function ExportPage() {
   }, [])
   const handleContactsHorizontalViewportScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     syncContactsHorizontalScroll('viewport', event.currentTarget.scrollLeft)
+  }, [syncContactsHorizontalScroll])
+  const handleContactsTopScrollbarScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    syncContactsHorizontalScroll('top', event.currentTarget.scrollLeft)
   }, [syncContactsHorizontalScroll])
   const handleContactsBottomScrollbarScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     syncContactsHorizontalScroll('bottom', event.currentTarget.scrollLeft)
@@ -5712,6 +5721,17 @@ function ExportPage() {
 
       if (Math.abs(viewport.scrollLeft - clampedScrollLeft) > 1) {
         viewport.scrollLeft = clampedScrollLeft
+      }
+
+      const topScrollbar = contactsTopScrollbarRef.current
+      if (topScrollbar) {
+        const nextScrollLeft = Math.min(topScrollbar.scrollLeft, maxScrollLeft)
+        if (Math.abs(topScrollbar.scrollLeft - nextScrollLeft) > 1) {
+          topScrollbar.scrollLeft = nextScrollLeft
+        }
+        if (Math.abs(nextScrollLeft - clampedScrollLeft) > 1) {
+          topScrollbar.scrollLeft = clampedScrollLeft
+        }
       }
 
       const bottomScrollbar = contactsBottomScrollbarRef.current
@@ -6314,6 +6334,17 @@ function ExportPage() {
                     <div className="table-stage-hint">
                       <Loader2 size={14} className="spin" />
                       联系人列表同步中…
+                    </div>
+                  )}
+
+                  {hasFilteredContacts && hasContactsHorizontalOverflow && (
+                    <div
+                      ref={contactsTopScrollbarRef}
+                      className="table-top-scrollbar"
+                      onScroll={handleContactsTopScrollbarScroll}
+                      aria-label="会话列表顶部横向滚动条"
+                    >
+                      <div className="table-top-scrollbar-inner" style={contactsBottomScrollbarInnerStyle} />
                     </div>
                   )}
 

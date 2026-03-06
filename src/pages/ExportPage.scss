@@ -1975,12 +1975,11 @@
     }
   }
 
+  .table-top-scrollbar,
   .table-bottom-scrollbar {
     flex: 0 0 auto;
-    height: 16px;
     overflow-x: auto;
     overflow-y: hidden;
-    border-top: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
     background: color-mix(in srgb, var(--bg-primary) 86%, var(--bg-secondary));
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--text-tertiary) 70%, transparent) transparent;
@@ -1999,7 +1998,21 @@
     }
   }
 
+  .table-top-scrollbar {
+    height: 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  }
+
   .table-bottom-scrollbar-inner {
+    height: 1px;
+  }
+
+  .table-bottom-scrollbar {
+    height: 16px;
+    border-top: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  }
+
+  .table-top-scrollbar-inner {
     height: 1px;
   }
 
