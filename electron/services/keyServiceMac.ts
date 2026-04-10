@@ -1,6 +1,6 @@
 import { app, shell } from 'electron'
 import { join, basename, dirname } from 'path'
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync, chmodSync } from 'fs'
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 import crypto from 'crypto'
@@ -403,19 +403,71 @@ export class KeyServiceMac {
     return `'${String(text).replace(/'/g, `'\\''`)}'`
   }
 
+  private collectMacKeyArtifactPaths(primaryBinaryPath: string): string[] {
+    const baseDir = dirname(primaryBinaryPath)
+    const names = ['xkey_helper', 'image_scan_helper', 'xkey_helper_macos', 'libwx_key.dylib']
+    const unique: string[] = []
+    for (const name of names) {
+      const full = join(baseDir, name)
+      if (!existsSync(full)) continue
+      if (!unique.includes(full)) unique.push(full)
+    }
+    if (existsSync(primaryBinaryPath) && !unique.includes(primaryBinaryPath)) {
+      unique.unshift(primaryBinaryPath)
+    }
+    return unique
+  }
+
+  private ensureExecutableBitsBestEffort(paths: string[]): void {
+    for (const p of paths) {
+      try {
+        const mode = statSync(p).mode
+        if ((mode & 0o111) !== 0) continue
+        chmodSync(p, mode | 0o111)
+      } catch {
+        // ignore: 可能无权限（例如 /Applications 下 root-owned 的 .app）
+      }
+    }
+  }
+
+  private async ensureExecutableBitsWithElevation(paths: string[], timeoutMs: number): Promise<void> {
+    const existing = paths.filter(p => existsSync(p))
+    if (existing.length === 0) return
+
+    const quotedPaths = existing.map(p => this.shellSingleQuote(p)).join(' ')
+    const timeoutSec = Math.max(30, Math.ceil(timeoutMs / 1000))
+    const scriptLines = [
+      `set chmodCmd to "/bin/chmod +x ${quotedPaths}"`,
+      `set timeoutSec to ${timeoutSec}`,
+      'with timeout of timeoutSec seconds',
+      'do shell script chmodCmd with administrator privileges',
+      'end timeout'
+    ]
+
+    await execFileAsync('/usr/bin/osascript', scriptLines.flatMap(line => ['-e', line]), {
+      timeout: timeoutMs + 10_000
+    })
+  }
+
   private async getDbKeyByHelperElevated(
     timeoutMs: number,
     onStatus?: (message: string, level: number) => void
   ): Promise<string> {
     const helperPath = this.getHelperPath()
+    const artifactPaths = this.collectMacKeyArtifactPaths(helperPath)
+    this.ensureExecutableBitsBestEffort(artifactPaths)
     const waitMs = Math.max(timeoutMs, 30_000)
     const timeoutSec = Math.ceil(waitMs / 1000) + 30
     const pid = await this.getWeChatPid()
+    const chmodPart = artifactPaths.length > 0
+      ? `/bin/chmod +x ${artifactPaths.map(p => this.shellSingleQuote(p)).join(' ')}`
+      : ''
+    const runPart = `${this.shellSingleQuote(helperPath)} ${pid} ${waitMs}`
+    const privilegedCmd = chmodPart ? `${chmodPart} && ${runPart}` : runPart
     // 用 AppleScript 的 quoted form 组装命令，避免复杂 shell 拼接导致整条失败
     // 通过 try/on error 回传详细错误，避免只看到 "Command failed"
     const scriptLines = [
-      `set helperPath to ${JSON.stringify(helperPath)}`,
-      `set cmd to quoted form of helperPath & " ${pid} ${waitMs}"`,
+      `set cmd to ${JSON.stringify(privilegedCmd)}`,
       `set timeoutSec to ${timeoutSec}`,
       'try',
       'with timeout of timeoutSec seconds',
@@ -751,10 +803,12 @@ export class KeyServiceMac {
     try {
       const helperPath = this.getImageScanHelperPath()
       const ciphertextHex = ciphertext.toString('hex')
+      const artifactPaths = this.collectMacKeyArtifactPaths(helperPath)
+      this.ensureExecutableBitsBestEffort(artifactPaths)
 
       // 1) 直接运行 helper（有正式签名的 debugger entitlement 时可用）
       if (!this._needsElevation) {
-        const direct = await this._spawnScanHelper(helperPath, pid, ciphertextHex, false)
+        const direct = await this._spawnScanHelper(helperPath, pid, ciphertextHex, false, artifactPaths)
         if (direct.key) return direct.key
         if (direct.permissionError) {
           console.warn('[KeyServiceMac] task_for_pid 权限不足，切换到 osascript 提权模式')
@@ -765,7 +819,12 @@ export class KeyServiceMac {
 
       // 2) 通过 osascript 以管理员权限运行 helper（SIP 下 ad-hoc 签名无法获取 task_for_pid）
       if (this._needsElevation) {
-        const elevated = await this._spawnScanHelper(helperPath, pid, ciphertextHex, true)
+        try {
+          await this.ensureExecutableBitsWithElevation(artifactPaths, 45_000)
+        } catch (e: any) {
+          console.warn('[KeyServiceMac] elevated chmod failed before image scan:', e?.message || e)
+        }
+        const elevated = await this._spawnScanHelper(helperPath, pid, ciphertextHex, true, artifactPaths)
         if (elevated.key) return elevated.key
       }
     } catch (e: any) {
@@ -868,12 +927,19 @@ export class KeyServiceMac {
   }
 
   private _spawnScanHelper(
-    helperPath: string, pid: number, ciphertextHex: string, elevated: boolean
+    helperPath: string,
+    pid: number,
+    ciphertextHex: string,
+    elevated: boolean,
+    artifactPaths: string[] = []
   ): Promise<{ key: string | null; permissionError: boolean }> {
     return new Promise((resolve, reject) => {
       let child: ReturnType<typeof spawn>
       if (elevated) {
-        const shellCmd = `'${helperPath}' ${pid} ${ciphertextHex}`
+        const chmodPart = artifactPaths.length > 0
+          ? `/bin/chmod +x ${artifactPaths.map(p => this.shellSingleQuote(p)).join(' ')} && `
+          : ''
+        const shellCmd = `${chmodPart}${this.shellSingleQuote(helperPath)} ${pid} ${ciphertextHex}`
         child = spawn('/usr/bin/osascript', ['-e', `do shell script ${JSON.stringify(shellCmd)} with administrator privileges`],
           { stdio: ['ignore', 'pipe', 'pipe'] })
       } else {

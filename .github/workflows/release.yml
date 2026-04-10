@@ -31,6 +31,22 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Ensure mac key helpers are executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            resources/key/macos/universal/xkey_helper \
+            resources/key/macos/universal/image_scan_helper \
+            resources/key/macos/universal/xkey_helper_macos \
+            resources/key/macos/universal/libwx_key.dylib
+          do
+            if [ -f "$file" ]; then
+              chmod +x "$file"
+              ls -l "$file"
+            fi
+          done
+
       - name: Sync version with tag
         shell: bash
         run: |
