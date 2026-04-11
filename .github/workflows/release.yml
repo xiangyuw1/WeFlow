@@ -104,6 +104,11 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Ensure linux key helper is executable
+        shell: bash
+        run: |
+          [ -f "resources/key/linux/x64/xkey_helper" ] && chmod +x "resources/key/linux/x64/xkey_helper" || echo "File not found"
+
       - name: Sync version with tag
         shell: bash
         run: |
